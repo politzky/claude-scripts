@@ -114,7 +114,12 @@ if ($ClusterName -and $targetClusterName -ne $ClusterName) {
     return
 }
 
-$sqlServerInstance = "$TargetHostName\$InstanceName"
+# Default-Instanz (MSSQLSERVER) braucht nur den Hostnamen, benannte Instanzen Host\Instanz
+if ($InstanceName -eq "MSSQLSERVER") {
+    $sqlServerInstance = $TargetHostName
+} else {
+    $sqlServerInstance = "$TargetHostName\$InstanceName"
+}
 
 # --- Alle MSSQL-Datenbanken aus RSC laden (mit Cluster-Info) ---
 $query = New-RscQuery -GqlQuery mssqlDatabases
