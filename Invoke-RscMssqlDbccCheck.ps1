@@ -249,26 +249,35 @@ foreach ($db in $databases) {
             throw "Mount Timeout nach $mountTimeout Sekunden"
         }
 
-        # Warten bis die DB auf dem SQL Server als ONLINE sichtbar ist (max 300 Sek.)
+        # Warten bis die DB auf dem SQL Server als ONLINE sichtbar ist (max 600 Sek.)
         Write-Log "Warte bis DB auf SQL Server online ist..." "STEP"
         $sqlReady = $false
-        $sqlTimeout = 300
+        $sqlTimeout = 600
         $sqlElapsed = 0
+        $lastSqlError = ""
         while (-not $sqlReady -and $sqlElapsed -lt $sqlTimeout) {
             Start-Sleep -Seconds 10
             $sqlElapsed += 10
             try {
                 $dbCheck = Invoke-Sqlcmd -ServerInstance $sqlServerInstance `
-                    -Query "SELECT state_desc FROM sys.databases WHERE name = '$mountedDbName'" `
+                    -Query "SELECT name, state_desc FROM sys.databases WHERE name = N'$($mountedDbName -replace "'","''")'" `
                     -ErrorAction Stop
                 if ($dbCheck -and $dbCheck.state_desc -eq "ONLINE") {
                     $sqlReady = $true
                     Write-Log "DB online auf SQL Server. ($sqlElapsed Sek.)" "STEP"
+                } elseif ($dbCheck) {
+                    Write-Log "DB Status: $($dbCheck.state_desc) ($sqlElapsed/$sqlTimeout Sek.)" "STEP"
                 }
-            } catch {}
+            } catch {
+                $lastSqlError = $_.Exception.Message
+                if ($sqlElapsed % 60 -eq 0) {
+                    Write-Log "SQL Verbindungsfehler: $lastSqlError ($sqlElapsed/$sqlTimeout Sek.)" "WARN"
+                }
+            }
         }
         if (-not $sqlReady) {
-            throw "DB '$mountedDbName' nicht auf SQL Server online nach $sqlTimeout Sekunden"
+            $detail = if ($lastSqlError) { " Letzter Fehler: $lastSqlError" } else { "" }
+            throw "DB '$mountedDbName' nicht auf SQL Server online nach $sqlTimeout Sekunden.$detail"
         }
 
         # DBCC CHECKDB ausfuehren (PHYSICAL_ONLY oder ESTIMATEONLY je nach Parameter)
