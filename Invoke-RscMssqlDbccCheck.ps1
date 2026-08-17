@@ -218,6 +218,28 @@ foreach ($db in $databases) {
             continue
         }
 
+        # Pruefen ob bereits ein Mount mit diesem Namen existiert und ggf. entfernen
+        $existingMount = (Get-RscMssqlLiveMount -RscMssqlDatabase $rscDb -MountedDatabaseName $mountedDbName 6>$null | Select-Object -First 1)
+        if ($existingMount) {
+            Write-Log "Alter Mount '$mountedDbName' gefunden - wird entfernt..." "WARN"
+            try {
+                Remove-RscMssqlLiveMount -MssqlLiveMount $existingMount -Force | Out-Null
+                $cleanupTimeout = 300
+                $cleanupElapsed = 0
+                while ($cleanupElapsed -lt $cleanupTimeout) {
+                    Start-Sleep -Seconds 15
+                    $cleanupElapsed += 15
+                    $checkOld = (Get-RscMssqlLiveMount -RscMssqlDatabase $rscDb -MountedDatabaseName $mountedDbName 6>$null | Select-Object -First 1)
+                    if (-not $checkOld) {
+                        Write-Log "Alter Mount entfernt. ($cleanupElapsed Sek.)" "STEP"
+                        break
+                    }
+                }
+            } catch {
+                Write-Log "Alter Mount konnte nicht entfernt werden: $($_.Exception.Message)" "WARN"
+            }
+        }
+
         # Live Mount auf der Ziel-Instanz erstellen
         Write-Log "Live Mount erstellen als '$mountedDbName'..." "STEP"
         try {
@@ -232,6 +254,11 @@ foreach ($db in $databases) {
                 Write-Log "SQL Server Version inkompatibel (Quell-DB neuer als Ziel-Instanz) - uebersprungen." "WARN"
                 $dbccResult = "SKIPPED"
                 $dbccDetail = "SQL Server Versionsinkompatibilitaet"
+            } elseif ($errMsg -match "already exists") {
+                Write-Log "Mount existiert noch auf anderer Instanz - uebersprungen." "WARN"
+                $skipCount++
+                $dbccResult = "SKIPPED"
+                $dbccDetail = "Mount existiert bereits auf anderer Instanz"
             } else {
                 Write-Log "Live Mount fehlgeschlagen: $errMsg" "ERROR"
                 $dbccResult = "ERROR"
