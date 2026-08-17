@@ -1,0 +1,4 @@
+*.json
+*.xml
+DBCC_Results_*.csv
+logs/
