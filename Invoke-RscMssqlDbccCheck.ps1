@@ -176,7 +176,23 @@ foreach ($db in $databases) {
 
     try {
         # Vollstaendiges DB-Objekt fuer Live Mount holen
-        $rscDb = Get-RscMssqlDatabase -Id $db.Id
+        try {
+            $rscDb = Get-RscMssqlDatabase -Id $db.Id
+        } catch {
+            $skipCount++
+            Write-Log "DB nicht mehr in RSC verfuegbar - uebersprungen." "WARN"
+            $stopwatch.Stop()
+            $results += [PSCustomObject]@{
+                DatabaseName = $db.Name
+                MountedAs    = $mountedDbName
+                DbccResult   = "SKIPPED"
+                DbccOutput   = "DB nicht in RSC verfuegbar"
+                Duration     = [math]::Round($stopwatch.Elapsed.TotalSeconds)
+                Timestamp    = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+            }
+            Write-Log ""
+            continue
+        }
 
         # Letztes Full Backup als Recovery Point (minimiert Log-Restore-Zeit)
         Write-Log "Recovery Point holen (LastFull)..." "STEP"
@@ -310,20 +326,30 @@ foreach ($db in $databases) {
 
         # Live Mount entfernen und warten bis er weg ist (max 300 Sek.)
         Write-Log "Live Mount entfernen..." "STEP"
-        $mount = (Get-RscMssqlLiveMount -RscMssqlDatabase $rscDb -MountedDatabaseName $mountedDbName 6>$null | Select-Object -First 1)
-        if ($mount) {
-            Remove-RscMssqlLiveMount -MssqlLiveMount $mount | Out-Null
+        try {
+            $mount = (Get-RscMssqlLiveMount -RscMssqlDatabase $rscDb -MountedDatabaseName $mountedDbName 6>$null | Select-Object -First 1)
+            if ($mount) {
+                Remove-RscMssqlLiveMount -MssqlLiveMount $mount | Out-Null
 
-            $unmountTimeout = 300
-            $unmountElapsed = 0
-            while ($unmountElapsed -lt $unmountTimeout) {
-                Start-Sleep -Seconds 15
-                $unmountElapsed += 15
-                $checkMount = (Get-RscMssqlLiveMount -RscMssqlDatabase $rscDb -MountedDatabaseName $mountedDbName 6>$null | Select-Object -First 1)
-                if (-not $checkMount) {
-                    Write-Log "Mount entfernt. ($unmountElapsed Sek.)" "STEP"
-                    break
+                $unmountTimeout = 300
+                $unmountElapsed = 0
+                while ($unmountElapsed -lt $unmountTimeout) {
+                    Start-Sleep -Seconds 15
+                    $unmountElapsed += 15
+                    $checkMount = (Get-RscMssqlLiveMount -RscMssqlDatabase $rscDb -MountedDatabaseName $mountedDbName 6>$null | Select-Object -First 1)
+                    if (-not $checkMount) {
+                        Write-Log "Mount entfernt. ($unmountElapsed Sek.)" "STEP"
+                        break
+                    }
                 }
+            } else {
+                Write-Log "Mount bereits entfernt." "STEP"
+            }
+        } catch {
+            if ($_.Exception.Message -match "NOT_FOUND|Could not find") {
+                Write-Log "Mount bereits entfernt (404)." "STEP"
+            } else {
+                Write-Log "Unmount-Fehler: $($_.Exception.Message)" "WARN"
             }
         }
     } catch {
