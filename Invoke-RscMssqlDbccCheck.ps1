@@ -36,7 +36,7 @@
     .\Invoke-RscMssqlDbccCheck.ps1 -TargetHostName "sqlhost01" -InstanceName "INST1" -DatabaseName "DB1","DB2" -EstimateOnly
 #>
 
-#Requires -Version 3
+#Requires -Version 5.1
 #Requires -Modules RubrikSecurityCloud
 
 param(
