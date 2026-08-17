@@ -122,8 +122,11 @@ $query.var.filter = @()
 $query.field.nodes[0].Cluster = New-Object -TypeName RubrikSecurityCloud.Types.Cluster
 $query.field.nodes[0].Cluster.name = "Fetch"
 $query.field.nodes[0].Cluster.id = "Fetch"
+# System-DBs und Live-Mount-Artefakte (DBCC_ Prefix) ausfiltern
 $allNodes = (Invoke-Rsc -Query $query).nodes | Where-Object {
-    $_.Name -notin @('master', 'model', 'msdb', 'tempdb') -and $_.IsOnline -eq $true
+    $_.Name -notin @('master', 'model', 'msdb', 'tempdb') -and
+    $_.Name -notlike 'DBCC_*' -and
+    $_.IsOnline -eq $true
 }
 
 if ($DatabaseName) {
@@ -156,6 +159,7 @@ $results = @()
 $dbIndex = 0
 $okCount = 0
 $failCount = 0
+$skipCount = 0
 
 # --- Hauptschleife: jede DB sequenziell per Live Mount pruefen ---
 foreach ($db in $databases) {
@@ -174,12 +178,57 @@ foreach ($db in $databases) {
         $recoveryPoint = Get-RscMssqlDatabaseRecoveryPoint -RscMssqlDatabase $rscDb -LastFull
         Write-Log "Recovery Point: $recoveryPoint" "STEP"
 
+        # Kein gueltiges Full Backup vorhanden (Epoch = 1970-01-01)
+        if (-not $recoveryPoint -or "$recoveryPoint" -match "^1970-01-01") {
+            $skipCount++
+            Write-Log "Kein Full Backup vorhanden - uebersprungen." "WARN"
+            $dbccResult = "SKIPPED"
+            $dbccDetail = "Kein Full Backup"
+            $stopwatch.Stop()
+            $results += [PSCustomObject]@{
+                DatabaseName = $db.Name
+                MountedAs    = $mountedDbName
+                DbccResult   = $dbccResult
+                DbccOutput   = $dbccDetail
+                Duration     = [math]::Round($stopwatch.Elapsed.TotalSeconds)
+                Timestamp    = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+            }
+            Write-Log ""
+            continue
+        }
+
         # Live Mount auf der Ziel-Instanz erstellen
         Write-Log "Live Mount erstellen als '$mountedDbName'..." "STEP"
-        New-RscMssqlLiveMount -RscMssqlDatabase $rscDb `
-            -MountedDatabaseName $mountedDbName `
-            -TargetMssqlInstance $targetInstance `
-            -RecoveryDateTime $recoveryPoint | Out-Null
+        try {
+            New-RscMssqlLiveMount -RscMssqlDatabase $rscDb `
+                -MountedDatabaseName $mountedDbName `
+                -TargetMssqlInstance $targetInstance `
+                -RecoveryDateTime $recoveryPoint | Out-Null
+        } catch {
+            $errMsg = $_.Exception.Message
+            if ($errMsg -match "incompatible with the internal version") {
+                $skipCount++
+                Write-Log "SQL Server Version inkompatibel (Quell-DB neuer als Ziel-Instanz) - uebersprungen." "WARN"
+                $dbccResult = "SKIPPED"
+                $dbccDetail = "SQL Server Versionsinkompatibilitaet"
+            } else {
+                Write-Log "Live Mount fehlgeschlagen: $errMsg" "ERROR"
+                $dbccResult = "ERROR"
+                $dbccDetail = $errMsg
+                $failCount++
+            }
+            $stopwatch.Stop()
+            $results += [PSCustomObject]@{
+                DatabaseName = $db.Name
+                MountedAs    = $mountedDbName
+                DbccResult   = $dbccResult
+                DbccOutput   = $dbccDetail
+                Duration     = [math]::Round($stopwatch.Elapsed.TotalSeconds)
+                Timestamp    = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+            }
+            Write-Log ""
+            continue
+        }
 
         # Warten bis RSC den Mount als bereit meldet (max 600 Sek.)
         Write-Log "Warte auf Mount (RSC)..." "STEP"
@@ -303,7 +352,7 @@ foreach ($db in $databases) {
 # --- Ergebnisse exportieren und Zusammenfassung ausgeben ---
 $results | Export-Csv -Path $OutputPath -NoTypeInformation -Encoding UTF8
 Write-Log "=== Zusammenfassung ==="
-Write-Log "Gesamt: $($databases.Count) | OK: $okCount | Fehler: $failCount"
+Write-Log "Gesamt: $($databases.Count) | OK: $okCount | Uebersprungen: $skipCount | Fehler: $failCount"
 Write-Log "CSV: $OutputPath"
 Write-Log "Log: $logFile"
 Write-Log "=== DBCC CHECKDB Lauf beendet ==="
