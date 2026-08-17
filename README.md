@@ -70,6 +70,7 @@ Fuehrt automatisiert DBCC CHECKDB auf allen (oder ausgewaehlten) MSSQL-Datenbank
 |-----------|---------|---------|-------------|
 | `-TargetHostName` | Ja | - | Hostname des Ziel-SQL-Servers |
 | `-InstanceName` | Ja | - | Name der SQL Server Instanz auf dem Zielhost |
+| `-ClusterName` | Nein | (auto) | Rubrik Cluster-Name. Ohne Angabe wird der Cluster der Ziel-Instanz verwendet |
 | `-DatabaseName` | Nein | (alle) | Eine oder mehrere DBs (kommasepariert). Ohne Angabe werden alle Online-DBs geprueft |
 | `-EstimateOnly` | Nein | `$false` | Schnelltest: fuehrt nur DBCC ESTIMATEONLY aus (Sekunden statt Minuten) |
 | `-OutputPath` | Nein | `.\DBCC_Results_<timestamp>.csv` | Pfad fuer die CSV-Ergebnisdatei |
@@ -81,6 +82,9 @@ Fuehrt automatisiert DBCC CHECKDB auf allen (oder ausgewaehlten) MSSQL-Datenbank
 ```powershell
 # Alle Online-Datenbanken pruefen (ohne System-DBs)
 .\Invoke-RscMssqlDbccCheck.ps1 -TargetHostName "sqlhost01" -InstanceName "MSSQLSERVER"
+
+# Nur Datenbanken eines bestimmten Clusters
+.\Invoke-RscMssqlDbccCheck.ps1 -TargetHostName "sqlhost01" -InstanceName "INST1" -ClusterName "Cluster-A"
 
 # Einzelne Datenbank pruefen
 .\Invoke-RscMssqlDbccCheck.ps1 -TargetHostName "sqlhost01" -InstanceName "INST1" -DatabaseName "AdventureWorks2019"

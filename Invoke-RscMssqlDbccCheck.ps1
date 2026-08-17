@@ -7,12 +7,17 @@
     per Live Mount an eine Ziel-SQL-Server-Instanz, fuehrt DBCC CHECKDB aus,
     entfernt den Mount und protokolliert das Ergebnis in CSV und Log-Datei.
     Nur Datenbanken auf dem gleichen Rubrik Cluster wie die Ziel-Instanz werden verarbeitet.
+    Optional kann ein Cluster-Name angegeben werden, um die Auswahl weiter einzuschraenken.
 
 .PARAMETER TargetHostName
     Hostname des Ziel-SQL-Servers (ohne Instanzname).
 
 .PARAMETER InstanceName
     Name der SQL Server Instanz auf dem Zielhost.
+
+.PARAMETER ClusterName
+    Optionaler Rubrik Cluster-Name. Wenn angegeben, werden nur DBs von diesem Cluster verarbeitet.
+    Ohne Angabe wird automatisch der Cluster der Ziel-Instanz verwendet.
 
 .PARAMETER DatabaseName
     Optionale Liste von Datenbanknamen. Ohne Angabe werden alle Online-DBs geprueft.
@@ -33,6 +38,9 @@
     .\Invoke-RscMssqlDbccCheck.ps1 -TargetHostName "sqlhost01" -InstanceName "MSSQLSERVER"
 
 .EXAMPLE
+    .\Invoke-RscMssqlDbccCheck.ps1 -TargetHostName "sqlhost01" -InstanceName "INST1" -ClusterName "Cluster-A"
+
+.EXAMPLE
     .\Invoke-RscMssqlDbccCheck.ps1 -TargetHostName "sqlhost01" -InstanceName "INST1" -DatabaseName "DB1","DB2" -EstimateOnly
 #>
 
@@ -46,6 +54,7 @@ param(
     [Parameter(Mandatory = $true, HelpMessage = "SQL Server Instanzname auf dem Zielhost")]
     [string]$InstanceName,
 
+    [string]$ClusterName,
     [string[]]$DatabaseName,
     [switch]$EstimateOnly,
     [string]$OutputPath = ".\DBCC_Results_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv",
@@ -96,7 +105,14 @@ if (-not $targetInstance) {
     return
 }
 $targetClusterId = $targetInstance.Cluster.Id
-Write-Log "Ziel-Instanz: $($targetInstance.Name) auf $TargetHostName (Cluster: $($targetInstance.Cluster.Name))"
+$targetClusterName = $targetInstance.Cluster.Name
+Write-Log "Ziel-Instanz: $($targetInstance.Name) auf $TargetHostName (Cluster: $targetClusterName)"
+
+# Wenn ClusterName angegeben, pruefen ob Ziel-Instanz darauf liegt
+if ($ClusterName -and $targetClusterName -ne $ClusterName) {
+    Write-Log "Ziel-Instanz liegt auf Cluster '$targetClusterName', nicht auf '$ClusterName'. Live Mount nicht moeglich." "ERROR"
+    return
+}
 
 $sqlServerInstance = "$TargetHostName\$InstanceName"
 
@@ -114,9 +130,15 @@ if ($DatabaseName) {
     $allNodes = $allNodes | Where-Object { $_.Name -in $DatabaseName }
 }
 
-# --- Nur DBs auf dem gleichen Cluster wie die Ziel-Instanz verarbeiten ---
-$skipped = $allNodes | Where-Object { $_.Cluster.Id -ne $targetClusterId }
-$databases = $allNodes | Where-Object { $_.Cluster.Id -eq $targetClusterId } | Sort-Object Name -Unique
+# --- Cluster-Filter: nur DBs auf dem Cluster der Ziel-Instanz (oder dem angegebenen Cluster) ---
+if ($ClusterName) {
+    $databases = $allNodes | Where-Object { $_.Cluster.Name -eq $ClusterName } | Sort-Object Name -Unique
+    $skipped = $allNodes | Where-Object { $_.Cluster.Name -ne $ClusterName }
+    Write-Log "Cluster-Filter: $ClusterName"
+} else {
+    $databases = $allNodes | Where-Object { $_.Cluster.Id -eq $targetClusterId } | Sort-Object Name -Unique
+    $skipped = $allNodes | Where-Object { $_.Cluster.Id -ne $targetClusterId }
+}
 
 if ($skipped) {
     $skippedNames = ($skipped | Select-Object -ExpandProperty Name -Unique) -join ", "
