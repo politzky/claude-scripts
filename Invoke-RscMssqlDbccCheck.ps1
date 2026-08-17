@@ -235,34 +235,27 @@ foreach ($db in $databases) {
             continue
         }
 
-        # Warten bis RSC den Mount als bereit meldet (max 600 Sek.)
-        Write-Log "Warte auf Mount (RSC)..." "STEP"
-        $mountReady = $false
-        $mountTimeout = 600
-        $mountElapsed = 0
-        while (-not $mountReady -and $mountElapsed -lt $mountTimeout) {
-            Start-Sleep -Seconds 15
-            $mountElapsed += 15
-            $mount = (Get-RscMssqlLiveMount -RscMssqlDatabase $rscDb -MountedDatabaseName $mountedDbName 6>$null | Select-Object -First 1)
-            if ($mount -and $mount.IsReady -eq $true) {
-                $mountReady = $true
-                Write-Log "Mount bereit in RSC. ($mountElapsed Sek.)" "STEP"
-            }
-        }
-
-        if (-not $mountReady) {
-            throw "Mount Timeout nach $mountTimeout Sekunden"
-        }
-
-        # Warten bis die DB auf dem SQL Server als ONLINE sichtbar ist (max 600 Sek.)
-        Write-Log "Pruefe SQL Server: $sqlServerInstance" "STEP"
+        # Warten bis DB auf SQL Server online ist (prueft RSC und SQL parallel)
+        Write-Log "Warte auf Mount und DB online ($sqlServerInstance)..." "STEP"
         $sqlReady = $false
-        $sqlTimeout = 600
-        $sqlElapsed = 0
+        $mountReady = $false
+        $pollTimeout = 600
+        $pollElapsed = 0
         $lastSqlError = ""
-        while (-not $sqlReady -and $sqlElapsed -lt $sqlTimeout) {
+        while (-not $sqlReady -and $pollElapsed -lt $pollTimeout) {
             Start-Sleep -Seconds 10
-            $sqlElapsed += 10
+            $pollElapsed += 10
+
+            # RSC-Status pruefen (nur zur Info, nicht blockierend)
+            if (-not $mountReady) {
+                $mount = (Get-RscMssqlLiveMount -RscMssqlDatabase $rscDb -MountedDatabaseName $mountedDbName 6>$null | Select-Object -First 1)
+                if ($mount -and $mount.IsReady -eq $true) {
+                    $mountReady = $true
+                    Write-Log "Mount bereit in RSC. ($pollElapsed Sek.)" "STEP"
+                }
+            }
+
+            # SQL Server pruefen — DB kann vor RSC-Ready online sein
             try {
                 $dbCheck = Invoke-Sqlcmd -ServerInstance $sqlServerInstance `
                     -Query "SELECT name, state_desc FROM sys.databases WHERE name = N'$($mountedDbName -replace "'","''")'" `
@@ -270,11 +263,9 @@ foreach ($db in $databases) {
                     -ErrorAction Stop
                 if ($dbCheck -and $dbCheck.state_desc -eq "ONLINE") {
                     $sqlReady = $true
-                    Write-Log "DB online auf SQL Server. ($sqlElapsed Sek.)" "STEP"
+                    Write-Log "DB online auf SQL Server. ($pollElapsed Sek.)" "STEP"
                 } elseif ($dbCheck) {
-                    Write-Log "DB Status: $($dbCheck.state_desc) ($sqlElapsed/$sqlTimeout Sek.)" "STEP"
-                } else {
-                    Write-Log "DB noch nicht sichtbar auf SQL Server. ($sqlElapsed/$sqlTimeout Sek.)" "STEP"
+                    Write-Log "DB Status: $($dbCheck.state_desc) ($pollElapsed/$pollTimeout Sek.)" "STEP"
                 }
             } catch {
                 $currentError = $_.Exception.Message
@@ -286,7 +277,7 @@ foreach ($db in $databases) {
         }
         if (-not $sqlReady) {
             $detail = if ($lastSqlError) { " Letzter Fehler: $lastSqlError" } else { "" }
-            throw "DB '$mountedDbName' nicht auf SQL Server online nach $sqlTimeout Sekunden.$detail"
+            throw "DB '$mountedDbName' nicht auf SQL Server online nach $pollTimeout Sekunden.$detail"
         }
 
         # DBCC CHECKDB ausfuehren (PHYSICAL_ONLY oder ESTIMATEONLY je nach Parameter)
