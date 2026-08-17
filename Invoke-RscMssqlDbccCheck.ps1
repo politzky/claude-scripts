@@ -250,7 +250,7 @@ foreach ($db in $databases) {
         }
 
         # Warten bis die DB auf dem SQL Server als ONLINE sichtbar ist (max 600 Sek.)
-        Write-Log "Warte bis DB auf SQL Server online ist..." "STEP"
+        Write-Log "Pruefe SQL Server: $sqlServerInstance" "STEP"
         $sqlReady = $false
         $sqlTimeout = 600
         $sqlElapsed = 0
@@ -261,17 +261,21 @@ foreach ($db in $databases) {
             try {
                 $dbCheck = Invoke-Sqlcmd -ServerInstance $sqlServerInstance `
                     -Query "SELECT name, state_desc FROM sys.databases WHERE name = N'$($mountedDbName -replace "'","''")'" `
+                    -ConnectionTimeout 10 `
                     -ErrorAction Stop
                 if ($dbCheck -and $dbCheck.state_desc -eq "ONLINE") {
                     $sqlReady = $true
                     Write-Log "DB online auf SQL Server. ($sqlElapsed Sek.)" "STEP"
                 } elseif ($dbCheck) {
                     Write-Log "DB Status: $($dbCheck.state_desc) ($sqlElapsed/$sqlTimeout Sek.)" "STEP"
+                } else {
+                    Write-Log "DB noch nicht sichtbar auf SQL Server. ($sqlElapsed/$sqlTimeout Sek.)" "STEP"
                 }
             } catch {
-                $lastSqlError = $_.Exception.Message
-                if ($sqlElapsed % 60 -eq 0) {
-                    Write-Log "SQL Verbindungsfehler: $lastSqlError ($sqlElapsed/$sqlTimeout Sek.)" "WARN"
+                $currentError = $_.Exception.Message
+                if ($currentError -ne $lastSqlError) {
+                    Write-Log "SQL Fehler: $currentError" "WARN"
+                    $lastSqlError = $currentError
                 }
             }
         }
