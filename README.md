@@ -68,8 +68,9 @@ Fuehrt automatisiert DBCC CHECKDB auf allen (oder ausgewaehlten) MSSQL-Datenbank
 
 | Parameter | Pflicht | Default | Beschreibung |
 |-----------|---------|---------|-------------|
-| `-TargetHostName` | Ja | - | Hostname des Ziel-SQL-Servers |
+| `-TargetHostName` | Ja | - | Hostname des Ziel-SQL-Servers (wie in RSC registriert) |
 | `-InstanceName` | Ja | - | Name der SQL Server Instanz auf dem Zielhost |
+| `-SqlClusterName` | Nein | - | Virtueller SQL Server Name bei Failover-Clustern (fuer SQL-Verbindung statt TargetHostName) |
 | `-ClusterName` | Nein | (auto) | Rubrik Cluster-Name. Ohne Angabe wird der Cluster der Ziel-Instanz verwendet |
 | `-DatabaseName` | Nein | (alle) | Eine oder mehrere DBs (kommasepariert). Ohne Angabe werden alle Online-DBs geprueft |
 | `-EstimateOnly` | Nein | `$false` | Schnelltest: fuehrt nur DBCC ESTIMATEONLY aus (Sekunden statt Minuten) |
@@ -83,7 +84,10 @@ Fuehrt automatisiert DBCC CHECKDB auf allen (oder ausgewaehlten) MSSQL-Datenbank
 # Alle Online-Datenbanken pruefen (ohne System-DBs)
 .\Invoke-RscMssqlDbccCheck.ps1 -TargetHostName "sqlhost01" -InstanceName "MSSQLSERVER"
 
-# Nur Datenbanken eines bestimmten Clusters
+# SQL Server Failover-Cluster (TargetHostName = Windows-Cluster fuer RSC, SqlClusterName = SQL-Listener)
+.\Invoke-RscMssqlDbccCheck.ps1 -TargetHostName "wincluster01" -InstanceName "SQLINST1" -SqlClusterName "sqlcluster01"
+
+# Nur Datenbanken eines bestimmten Rubrik Clusters
 .\Invoke-RscMssqlDbccCheck.ps1 -TargetHostName "sqlhost01" -InstanceName "INST1" -ClusterName "Cluster-A"
 
 # Einzelne Datenbank pruefen

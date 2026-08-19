@@ -15,6 +15,11 @@
 .PARAMETER InstanceName
     Name der SQL Server Instanz auf dem Zielhost.
 
+.PARAMETER SqlClusterName
+    Virtueller SQL Server Netzwerkname bei Failover-Clustern. Wenn angegeben, wird dieser
+    fuer die SQL-Verbindung verwendet statt TargetHostName. Noetig wenn der Windows-Cluster-
+    Knotenname (fuer RSC) und der SQL-Listener-Name unterschiedlich sind.
+
 .PARAMETER ClusterName
     Optionaler Rubrik Cluster-Name. Wenn angegeben, werden nur DBs von diesem Cluster verarbeitet.
     Ohne Angabe wird automatisch der Cluster der Ziel-Instanz verwendet.
@@ -38,6 +43,9 @@
     .\Invoke-RscMssqlDbccCheck.ps1 -TargetHostName "sqlhost01" -InstanceName "MSSQLSERVER"
 
 .EXAMPLE
+    .\Invoke-RscMssqlDbccCheck.ps1 -TargetHostName "wincluster01" -InstanceName "SQLINST1" -SqlClusterName "sqlcluster01"
+
+.EXAMPLE
     .\Invoke-RscMssqlDbccCheck.ps1 -TargetHostName "sqlhost01" -InstanceName "INST1" -ClusterName "Cluster-A"
 
 .EXAMPLE
@@ -54,6 +62,7 @@ param(
     [Parameter(Mandatory = $true, HelpMessage = "SQL Server Instanzname auf dem Zielhost")]
     [string]$InstanceName,
 
+    [string]$SqlClusterName,
     [string]$ClusterName,
     [string[]]$DatabaseName,
     [switch]$EstimateOnly,
@@ -114,11 +123,16 @@ if ($ClusterName -and $targetClusterName -ne $ClusterName) {
     return
 }
 
+# SQL-Verbindung: SqlClusterName hat Vorrang vor TargetHostName (Failover-Cluster)
+$sqlHost = if ($SqlClusterName) { $SqlClusterName } else { $TargetHostName }
+if ($SqlClusterName) {
+    Write-Log "SQL Failover-Cluster: $SqlClusterName"
+}
 # Default-Instanz (MSSQLSERVER) braucht nur den Hostnamen, benannte Instanzen Host\Instanz
 if ($InstanceName -eq "MSSQLSERVER") {
-    $sqlServerInstance = $TargetHostName
+    $sqlServerInstance = $sqlHost
 } else {
-    $sqlServerInstance = "$TargetHostName\$InstanceName"
+    $sqlServerInstance = "$sqlHost\$InstanceName"
 }
 
 # --- Alle MSSQL-Datenbanken aus RSC laden (mit Cluster-Info) ---
