@@ -177,7 +177,7 @@ foreach ($db in $databases) {
     try {
         # Vollstaendiges DB-Objekt fuer Live Mount holen
         try {
-            $rscDb = Get-RscMssqlDatabase -Id $db.Id
+            $rscDb = Get-RscMssqlDatabase -Id $db.Id 6>$null
         } catch {
             $skipCount++
             Write-Log "DB nicht mehr in RSC verfuegbar - uebersprungen." "WARN"
