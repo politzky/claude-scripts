@@ -370,7 +370,7 @@ foreach ($db in $databases) {
         try {
             $mount = (Get-RscMssqlLiveMount -RscMssqlDatabase $rscDb -MountedDatabaseName $mountedDbName 6>$null | Select-Object -First 1)
             if ($mount) {
-                Remove-RscMssqlLiveMount -MssqlLiveMount $mount | Out-Null
+                Remove-RscMssqlLiveMount -MssqlLiveMount $mount -ErrorAction Stop 6>$null | Out-Null
 
                 $unmountTimeout = 300
                 $unmountElapsed = 0
@@ -405,7 +405,7 @@ foreach ($db in $databases) {
             $mount = (Get-RscMssqlLiveMount -RscMssqlDatabase $rscDb -MountedDatabaseName $mountedDbName 6>$null | Select-Object -First 1)
             if ($mount) {
                 Write-Log "Raeume Mount auf..." "STEP"
-                Remove-RscMssqlLiveMount -MssqlLiveMount $mount -Force | Out-Null
+                Remove-RscMssqlLiveMount -MssqlLiveMount $mount -Force -ErrorAction Stop 6>$null | Out-Null
             }
         } catch {
             Write-Log "Mount-Cleanup fehlgeschlagen: $($_.Exception.Message)" "ERROR"
