@@ -74,6 +74,7 @@ Fuehrt automatisiert DBCC CHECKDB auf allen (oder ausgewaehlten) MSSQL-Datenbank
 | `-ClusterName` | Nein | (auto) | Rubrik Cluster-Name. Ohne Angabe wird der Cluster der Ziel-Instanz verwendet |
 | `-DatabaseName` | Nein | (alle) | Eine oder mehrere DBs (kommasepariert). Ohne Angabe werden alle Online-DBs geprueft |
 | `-EstimateOnly` | Nein | `$false` | Schnelltest: fuehrt nur DBCC ESTIMATEONLY aus (Sekunden statt Minuten) |
+| `-TrustServerCertificate` | Nein | `$false` | Deaktiviert SSL-Zertifikatspruefung fuer SQL Server (bei selbstsignierten Zertifikaten) |
 | `-OutputPath` | Nein | `.\DBCC_Results_<timestamp>.csv` | Pfad fuer die CSV-Ergebnisdatei |
 | `-LogDir` | Nein | `.\logs` | Verzeichnis fuer Log-Dateien |
 | `-MaxLogFiles` | Nein | `7` | Maximale Anzahl Log-Dateien (aeltere werden automatisch geloescht) |

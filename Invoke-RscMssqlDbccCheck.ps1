@@ -36,6 +36,10 @@
 .PARAMETER LogDir
     Verzeichnis fuer Log-Dateien.
 
+.PARAMETER TrustServerCertificate
+    Deaktiviert die SSL-Zertifikatspruefung fuer die SQL Server Verbindung.
+    Noetig wenn der SQL Server ein selbstsigniertes Zertifikat verwendet.
+
 .PARAMETER MaxLogFiles
     Maximale Anzahl Log-Dateien bevor die aeltesten geloescht werden.
 
@@ -66,6 +70,7 @@ param(
     [string]$ClusterName,
     [string[]]$DatabaseName,
     [switch]$EstimateOnly,
+    [switch]$TrustServerCertificate,
     [string]$OutputPath = ".\DBCC_Results_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv",
     [string]$LogDir = "$PSScriptRoot\logs",
     [int]$MaxLogFiles = 7
@@ -80,7 +85,10 @@ $logFile = Join-Path $LogDir "DBCC_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
 $existingLogs = Get-ChildItem -Path $LogDir -Filter "DBCC_*.log" | Sort-Object LastWriteTime
 if ($existingLogs.Count -ge $MaxLogFiles) {
     $toDelete = $existingLogs | Select-Object -First ($existingLogs.Count - $MaxLogFiles + 1)
-    $toDelete | Remove-Item -Force
+    $toDelete | ForEach-Object {
+        try { Remove-Item $_.FullName -Force -ErrorAction Stop }
+        catch { Write-Warning "Log '$($_.Name)' konnte nicht geloescht werden: $($_.Exception.Message)" }
+    }
 }
 
 # --- Logging-Funktion: schreibt in Log-Datei und Terminal mit farbiger Ausgabe ---
@@ -237,13 +245,13 @@ foreach ($db in $databases) {
         if ($existingMount) {
             Write-Log "Alter Mount '$mountedDbName' gefunden - wird entfernt..." "WARN"
             try {
-                Remove-RscMssqlLiveMount -MssqlLiveMount $existingMount -Force | Out-Null
+                Remove-RscMssqlLiveMount -MssqlLiveMount $existingMount -Force -ErrorAction Stop 6>$null | Out-Null
                 $cleanupTimeout = 300
                 $cleanupElapsed = 0
                 while ($cleanupElapsed -lt $cleanupTimeout) {
                     Start-Sleep -Seconds 15
                     $cleanupElapsed += 15
-                    $checkOld = (Get-RscMssqlLiveMount -RscMssqlDatabase $rscDb -MountedDatabaseName $mountedDbName 6>$null | Select-Object -First 1)
+                    $checkOld = (Get-RscMssqlLiveMount -RscMssqlDatabase $rscDb -MountedDatabaseName $mountedDbName -ErrorAction SilentlyContinue 6>$null | Select-Object -First 1)
                     if (-not $checkOld) {
                         Write-Log "Alter Mount entfernt. ($cleanupElapsed Sek.)" "STEP"
                         break
@@ -317,6 +325,7 @@ foreach ($db in $databases) {
                 $dbCheck = Invoke-Sqlcmd -ServerInstance $sqlServerInstance `
                     -Query "SELECT name, state_desc FROM sys.databases WHERE name = N'$($mountedDbName -replace "'","''")'" `
                     -ConnectionTimeout 10 `
+                    -TrustServerCertificate:$TrustServerCertificate `
                     -ErrorAction Stop
                 if ($dbCheck -and $dbCheck.state_desc -eq "ONLINE") {
                     $sqlReady = $true
@@ -343,6 +352,7 @@ foreach ($db in $databases) {
             -Database $mountedDbName `
             -Query "DBCC CHECKDB([$mountedDbName]) WITH $(if ($EstimateOnly) { 'ESTIMATEONLY' } else { 'NO_INFOMSGS, PHYSICAL_ONLY' })" `
             -QueryTimeout 3600 `
+            -TrustServerCertificate:$TrustServerCertificate `
             -OutputSqlErrors $true `
             -ErrorAction SilentlyContinue 2>&1
 
@@ -377,7 +387,7 @@ foreach ($db in $databases) {
                 while ($unmountElapsed -lt $unmountTimeout) {
                     Start-Sleep -Seconds 15
                     $unmountElapsed += 15
-                    $checkMount = (Get-RscMssqlLiveMount -RscMssqlDatabase $rscDb -MountedDatabaseName $mountedDbName 6>$null | Select-Object -First 1)
+                    $checkMount = (Get-RscMssqlLiveMount -RscMssqlDatabase $rscDb -MountedDatabaseName $mountedDbName -ErrorAction SilentlyContinue 6>$null | Select-Object -First 1)
                     if (-not $checkMount) {
                         Write-Log "Mount entfernt. ($unmountElapsed Sek.)" "STEP"
                         break
@@ -387,7 +397,7 @@ foreach ($db in $databases) {
                 Write-Log "Mount bereits entfernt." "STEP"
             }
         } catch {
-            if ($_.Exception.Message -match "NOT_FOUND|Could not find") {
+            if ($_.Exception.Message -match "NOT_FOUND|Could not find|404") {
                 Write-Log "Mount bereits entfernt (404)." "STEP"
             } else {
                 Write-Log "Unmount-Fehler: $($_.Exception.Message)" "WARN"
@@ -402,13 +412,17 @@ foreach ($db in $databases) {
         Write-Log "FEHLER: $dbccDetail" "ERROR"
 
         try {
-            $mount = (Get-RscMssqlLiveMount -RscMssqlDatabase $rscDb -MountedDatabaseName $mountedDbName 6>$null | Select-Object -First 1)
+            $mount = (Get-RscMssqlLiveMount -RscMssqlDatabase $rscDb -MountedDatabaseName $mountedDbName -ErrorAction SilentlyContinue 6>$null | Select-Object -First 1)
             if ($mount) {
                 Write-Log "Raeume Mount auf..." "STEP"
                 Remove-RscMssqlLiveMount -MssqlLiveMount $mount -Force -ErrorAction Stop 6>$null | Out-Null
             }
         } catch {
-            Write-Log "Mount-Cleanup fehlgeschlagen: $($_.Exception.Message)" "ERROR"
+            if ($_.Exception.Message -match "NOT_FOUND|Could not find|404") {
+                Write-Log "Mount bereits entfernt (404)." "STEP"
+            } else {
+                Write-Log "Mount-Cleanup fehlgeschlagen: $($_.Exception.Message)" "ERROR"
+            }
         }
     }
 
