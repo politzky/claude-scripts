@@ -403,6 +403,31 @@ foreach ($db in $databases) {
                 Write-Log "Unmount-Fehler: $($_.Exception.Message)" "WARN"
             }
         }
+
+        # SQL-seitig pruefen ob DB tatsaechlich entfernt wurde
+        $sqlUnmountTimeout = 120
+        $sqlUnmountElapsed = 0
+        while ($sqlUnmountElapsed -lt $sqlUnmountTimeout) {
+            try {
+                $dbStillThere = Invoke-Sqlcmd -ServerInstance $sqlServerInstance `
+                    -Query "SELECT name FROM sys.databases WHERE name = N'$($mountedDbName -replace "'","''")'" `
+                    -ConnectionTimeout 10 `
+                    -TrustServerCertificate:$TrustServerCertificate `
+                    -ErrorAction Stop
+            } catch {
+                $dbStillThere = $null
+            }
+            if (-not $dbStillThere) {
+                Write-Log "DB '$mountedDbName' auf SQL Server entfernt." "STEP"
+                break
+            }
+            Start-Sleep -Seconds 10
+            $sqlUnmountElapsed += 10
+            Write-Log "DB noch auf SQL Server ($sqlUnmountElapsed/$sqlUnmountTimeout Sek.)..." "STEP"
+        }
+        if ($dbStillThere) {
+            Write-Log "DB '$mountedDbName' nach $sqlUnmountTimeout Sek. noch auf SQL Server!" "WARN"
+        }
     } catch {
         # Fehlerbehandlung mit automatischem Cleanup des Mounts
         $stopwatch.Stop()
@@ -423,6 +448,31 @@ foreach ($db in $databases) {
             } else {
                 Write-Log "Mount-Cleanup fehlgeschlagen: $($_.Exception.Message)" "ERROR"
             }
+        }
+
+        # SQL-seitig pruefen ob DB tatsaechlich entfernt wurde
+        $sqlUnmountTimeout = 120
+        $sqlUnmountElapsed = 0
+        while ($sqlUnmountElapsed -lt $sqlUnmountTimeout) {
+            try {
+                $dbStillThere = Invoke-Sqlcmd -ServerInstance $sqlServerInstance `
+                    -Query "SELECT name FROM sys.databases WHERE name = N'$($mountedDbName -replace "'","''")'" `
+                    -ConnectionTimeout 10 `
+                    -TrustServerCertificate:$TrustServerCertificate `
+                    -ErrorAction Stop
+            } catch {
+                $dbStillThere = $null
+            }
+            if (-not $dbStillThere) {
+                Write-Log "DB '$mountedDbName' auf SQL Server entfernt." "STEP"
+                break
+            }
+            Start-Sleep -Seconds 10
+            $sqlUnmountElapsed += 10
+            Write-Log "DB noch auf SQL Server ($sqlUnmountElapsed/$sqlUnmountTimeout Sek.)..." "STEP"
+        }
+        if ($dbStillThere) {
+            Write-Log "DB '$mountedDbName' nach $sqlUnmountTimeout Sek. noch auf SQL Server!" "WARN"
         }
     }
 
