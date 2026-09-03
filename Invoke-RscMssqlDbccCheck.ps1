@@ -192,6 +192,7 @@ $skipCount = 0
 foreach ($db in $databases) {
     $dbIndex++
     $mountedDbName = "DBCC_$($db.Name)"
+    $killSessionsQuery = "DECLARE @s nvarchar(max)=N'';SELECT @s+=N'KILL '+CAST(session_id AS nvarchar(10))+N';' FROM sys.dm_exec_sessions WHERE database_id=DB_ID(N'$($mountedDbName -replace "'","''")');IF @s<>N'' EXEC sp_executesql @s;"
     $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
     Write-Log "[$dbIndex/$($databases.Count)] $($db.Name)" "HEAD"
@@ -375,12 +376,22 @@ foreach ($db in $databases) {
             Write-Log "Detail: $dbccDetail" "ERROR"
         }
 
+        # SQL-Verbindungen zur gemounteten DB trennen damit Unmount nicht blockiert
+        Write-Log "SQL-Verbindungen trennen..." "STEP"
+        try {
+            Invoke-Sqlcmd -ServerInstance $sqlServerInstance -Database "master" `
+                -Query $killSessionsQuery `
+                -ConnectionTimeout 10 -QueryTimeout 30 `
+                -TrustServerCertificate:$TrustServerCertificate `
+                -ErrorAction SilentlyContinue
+        } catch { }
+
         # Live Mount entfernen und warten bis er weg ist (max 300 Sek.)
         Write-Log "Live Mount entfernen..." "STEP"
         try {
             $mount = (Get-RscMssqlLiveMount -RscMssqlDatabase $rscDb -MountedDatabaseName $mountedDbName 6>$null | Select-Object -First 1)
             if ($mount) {
-                Remove-RscMssqlLiveMount -MssqlLiveMount $mount -ErrorAction Stop 6>$null | Out-Null
+                Remove-RscMssqlLiveMount -MssqlLiveMount $mount -Force -ErrorAction Stop 6>$null | Out-Null
 
                 $unmountTimeout = 300
                 $unmountElapsed = 0
@@ -408,6 +419,14 @@ foreach ($db in $databases) {
         $sqlUnmountTimeout = 120
         $sqlUnmountElapsed = 0
         while ($sqlUnmountElapsed -lt $sqlUnmountTimeout) {
+            # Blockierende SQL-Verbindungen beenden
+            try {
+                Invoke-Sqlcmd -ServerInstance $sqlServerInstance -Database "master" `
+                    -Query $killSessionsQuery `
+                    -ConnectionTimeout 10 -QueryTimeout 30 `
+                    -TrustServerCertificate:$TrustServerCertificate `
+                    -ErrorAction SilentlyContinue
+            } catch { }
             try {
                 $dbStillThere = Invoke-Sqlcmd -ServerInstance $sqlServerInstance `
                     -Query "SELECT name FROM sys.databases WHERE name = N'$($mountedDbName -replace "'","''")'" `
@@ -454,6 +473,14 @@ foreach ($db in $databases) {
         $sqlUnmountTimeout = 120
         $sqlUnmountElapsed = 0
         while ($sqlUnmountElapsed -lt $sqlUnmountTimeout) {
+            # Blockierende SQL-Verbindungen beenden
+            try {
+                Invoke-Sqlcmd -ServerInstance $sqlServerInstance -Database "master" `
+                    -Query $killSessionsQuery `
+                    -ConnectionTimeout 10 -QueryTimeout 30 `
+                    -TrustServerCertificate:$TrustServerCertificate `
+                    -ErrorAction SilentlyContinue
+            } catch { }
             try {
                 $dbStillThere = Invoke-Sqlcmd -ServerInstance $sqlServerInstance `
                     -Query "SELECT name FROM sys.databases WHERE name = N'$($mountedDbName -replace "'","''")'" `
